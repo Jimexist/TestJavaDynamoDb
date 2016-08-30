@@ -18,6 +18,7 @@ import com.amazonaws.services.dynamodbv2.model.ScalarAttributeType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import io.dropwizard.jackson.Jackson;
 import java.util.UUID;
 
@@ -32,39 +33,33 @@ public class MainApp {
         AmazonDynamoDB client = new AmazonDynamoDBClient()
             .withEndpoint("http://localhost:8000");
         DynamoDB dynamoDB = new DynamoDB(client);
-
         Table table = dynamoDB.getTable("UserProfile");
+        try {
+            dynamoDB.createTable(new CreateTableRequest()
+                .withKeySchema(new KeySchemaElement()
+                    .withKeyType(KeyType.HASH)
+                    .withAttributeName("id"))
+                .withAttributeDefinitions(new AttributeDefinition()
+                    .withAttributeName("id")
+                    .withAttributeType(ScalarAttributeType.S))
+                .withTableName("UserProfile")
+                .withProvisionedThroughput(new ProvisionedThroughput()
+                    .withReadCapacityUnits(4L)
+                    .withWriteCapacityUnits(4L)));
+            table.waitForActive();
 
-        dynamoDB.createTable(new CreateTableRequest()
-            .withKeySchema(new KeySchemaElement()
-                .withKeyType(KeyType.HASH)
-                .withAttributeName("id"))
-            .withAttributeDefinitions(new AttributeDefinition()
-                .withAttributeName("id")
-                .withAttributeType(ScalarAttributeType.S))
-            .withTableName("UserProfile")
-            .withProvisionedThroughput(new ProvisionedThroughput().withReadCapacityUnits(4L).withWriteCapacityUnits(4L)));
-        table.waitForActive();
+            final String id = UUID.randomUUID().toString();
+            UserProfile userProfile = new UserProfile(id, ImmutableList.of("original id"));
+            table.putItem(Item.fromMap(ImmutableMap.of("id", userProfile.getId(), "addresses", userProfile.getAddresses())));
+            System.err.println(table.getItem(new PrimaryKey("id", id)));
 
-        final String id = UUID.randomUUID().toString();
-
-        table.putItem(Item.fromJSON(objectMapper.writeValueAsString(new UserProfile(id, ImmutableList.<String>of()))));
-        System.out.println(table.getItem(new PrimaryKey("id", id)));
-
-        System.out.println(table.updateItem(new UpdateItemSpec()
-            .withPrimaryKey(new PrimaryKey("id", id))
-            .withAttributeUpdate(new AttributeUpdate("addresses")
-                .addElements("some random address"))
-            .withReturnValues(ReturnValue.ALL_NEW)
-        ).getItem());
-
-        System.out.println(table.updateItem(new UpdateItemSpec()
-            .withPrimaryKey(new PrimaryKey("id", id))
-            .withAttributeUpdate(new AttributeUpdate("addresses")
-                .addElements("some random address again"))
-            .withReturnValues(ReturnValue.ALL_NEW)
-        ).getItem());
-
-        table.delete();
+            System.err.println(table.updateItem(new UpdateItemSpec()
+                .withPrimaryKey(new PrimaryKey("id", id))
+                .withAttributeUpdate(new AttributeUpdate("addresses").put(ImmutableList.of("new id")))
+                .withReturnValues(ReturnValue.ALL_NEW)
+            ).getItem());
+        } finally {
+            table.delete();
+        }
     }
 }
